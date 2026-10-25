@@ -4,9 +4,8 @@
 #include <string.h>
 #include <sys/stat.h>
 
-int counter = 0;
-const int BOUND = 512;
-int capacity = 128;
+static int counter = 0;
+static int capacity = 512;
 
 int listdir(const char* path) {
     struct dirent* entry;
@@ -22,14 +21,23 @@ int listdir(const char* path) {
     int count = 0;
     if (subpaths == NULL) {
         perror("malloc");
+        closedir(dp);
         return -1;
     }
     while ((entry = readdir(dp)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
         if (count >= capacity) {
-            capacity = (capacity * 2 > BOUND) ? BOUND : capacity * 2;
+            capacity <<= 1;
             char** tmp = realloc(subpaths, capacity * sizeof(char*));
+            if (tmp == NULL) {
+                perror("realloc");
+                for (int i = 0; i < count; ++i) free(subpaths[i]);
+                free(subpaths);
+                closedir(dp);
+                return -1;
+            }
+            subpaths = tmp;
         }
         subpaths[count] = malloc(strlen(entry->d_name) + 1);
         if (subpaths[count] != NULL) {
@@ -46,7 +54,15 @@ int listdir(const char* path) {
         char tmp_path[1024];
         // if (abs_path == NULL) perror("malloc");
 
-        sprintf(tmp_path, "%s/%s", path, filename);
+        int expected_len =
+            snprintf(tmp_path, sizeof(tmp_path), "%s/%s", path, filename);
+
+        if (expected_len < 0) {
+            perror("snprintf encoding error");
+        } else if (expected_len >= 1024) {
+            printf("path too long\n");
+            return -1;
+        }
         char* abs_path = realpath(tmp_path, NULL);
 
         if (abs_path != NULL) {
@@ -67,21 +83,6 @@ int listdir(const char* path) {
         free(subpaths[i]);
     }
     free(subpaths);
-
-    return 0;
-}
-
-int main(int argc, char** argv) {
-    int counter = 1;
-
-    if (argc == 1) listdir(".");
-
-    char* seen;
-
-    while (++counter <= argc) {
-        printf("\nListing %s...\n", argv[counter - 1]);
-        listdir(argv[counter - 1]);
-    }
 
     return 0;
 }
