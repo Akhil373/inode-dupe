@@ -1,3 +1,5 @@
+#include "tree.h"
+
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,9 +9,11 @@
 static int counter = 0;
 static int capacity = 512;
 
-int listdir(const char* path) {
+static int walk_impl(const char* path, file_cb cb, void* ctx) {
     struct dirent* entry;
     DIR* dp;
+
+    int rc = 0;
 
     dp = opendir(path);
     if (dp == NULL) {
@@ -66,14 +70,16 @@ int listdir(const char* path) {
         char* abs_path = realpath(tmp_path, NULL);
 
         if (abs_path != NULL) {
-            if (stat(abs_path, &fileStat) == 0) {
+            if (lstat(abs_path, &fileStat) == 0) {
                 if (S_ISDIR(fileStat.st_mode)) {
-                    printf("+ %*s%s/\n", counter * 4, "", filename);
+                    // printf("+ %*s%s/\n", counter * 4, "", filename);
                     ++counter;
-                    listdir(abs_path);
+                    // listdir(abs_path);
+                    rc = walk_impl(abs_path, cb, ctx);
                     --counter;
-                } else {
-                    printf("%*s- %s\n", counter * 4, "", filename);
+                } else if (S_ISREG(fileStat.st_mode)) {
+                    // printf("%*s- %s\n", counter * 4, "", filename);
+                    cb(abs_path, &fileStat, ctx);
                 }
             }
         } else {
@@ -85,4 +91,8 @@ int listdir(const char* path) {
     free(subpaths);
 
     return 0;
+}
+
+int walk_dir(const char* root, file_cb cb, void* ctx) {
+    return walk_impl(root, cb, ctx);
 }
