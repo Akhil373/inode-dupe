@@ -9,6 +9,11 @@
 static int counter = 0;
 static int capacity = 512;
 
+static const char* ignorelist[] = {
+    ".",      "..",     ".git",  ".svn",    ".hg",         "node_modules",
+    "vendor", "target", "dist",  "build",   "__pycache__", ".venv",
+    "venv",   ".tox",   ".idea", ".vscode", ".cache"};
+
 static int walk_impl(const char* path, file_cb cb, void* ctx) {
     struct dirent* entry;
     DIR* dp;
@@ -28,9 +33,17 @@ static int walk_impl(const char* path, file_cb cb, void* ctx) {
         closedir(dp);
         return -1;
     }
+
+    size_t ignorelist_len = sizeof(ignorelist) / sizeof(*ignorelist);
     while ((entry = readdir(dp)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
+        int skip = 0;
+        for (int x = 0; x < ignorelist_len; ++x) {
+            if (strcmp(entry->d_name, ignorelist[x]) == 0) {
+                skip = 1;
+                break;
+            }
+        }
+        if (skip) continue;
         if (count >= capacity) {
             capacity <<= 1;
             char** tmp = realloc(subpaths, capacity * sizeof(char*));
@@ -55,7 +68,7 @@ static int walk_impl(const char* path, file_cb cb, void* ctx) {
     for (int i = 0; i < count; ++i) {
         char* filename = subpaths[i];
         if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) continue;
-        char tmp_path[1024];
+        char tmp_path[2048];
         // if (abs_path == NULL) perror("malloc");
 
         int expected_len =
