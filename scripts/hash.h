@@ -5,7 +5,6 @@
 
 #include "xxhash.h"
 
-uint64_t hash_buffer(const void* buf, size_t size);
-int hash_file(const char* path, uint64_t* out);
+XXH64_hash_t hash_buffer(const void* buf, size_t size);
 
 #endif
