@@ -78,11 +78,9 @@ static void drop_unique_files(struct file_list* fl) {
 }
 
 static void mem_cmp(struct file_list* fl, size_t begin, size_t end) {
-    int curr_group_id = fl->next_group_id++;
     for (size_t i = begin; i < end; ++i) {
         if (fl->items[i].group_id >= 0 || fl->items[i].path == NULL) continue;
 
-        fl->items[i].group_id = curr_group_id++;
         FILE* f1 = fopen(fl->items[i].path, "rb");
         if (!f1) {
             printf("fopen error in memcmp: skipping file %s\n",
@@ -91,10 +89,15 @@ static void mem_cmp(struct file_list* fl, size_t begin, size_t end) {
             fl->items[i].path = NULL;
             continue;
         }
+
+        fl->items[i].group_id = fl->next_group_id++;
+
         size_t bytes_read1;
         char buf1[CHUNK_SIZE];
 
         for (size_t j = i + 1; j < end; ++j) {
+            if (fl->items[j].path == NULL || fl->items[j].group_id >= 0)
+                continue;
             FILE* f2 = fopen(fl->items[j].path, "rb");
             if (!f2) {
                 printf("fopen error in memcmp: skipping file %s\n",
@@ -133,6 +136,7 @@ static void mem_cmp(struct file_list* fl, size_t begin, size_t end) {
 
 static void partial_hash(struct file_list* fl, size_t begin, size_t end) {
     for (size_t i = begin; i < end; ++i) {
+        if (fl->items[i].group_id >= 0 || fl->items[i].path == NULL) continue;
         FILE* f1 = fopen(fl->items[i].path, "rb");
         if (!f1) {
             printf("skipping %s...\n", fl->items[i].path);
@@ -181,12 +185,15 @@ static void partial_hash(struct file_list* fl, size_t begin, size_t end) {
 }
 
 static void compare_files(struct file_list* fl) {
-    size_t n = fl->count;
-    for (size_t i = 0; i < n; ++i) {
+    size_t n = fl->count, i = 0;
+    while (i < n) {
         size_t curr_size = fl->items[i].size;
         size_t end = i;
         while (end < n && fl->items[end].size == curr_size) end++;
-        if (end - i == 1) continue;
+        if (end - i == 1) {
+            free(fl->items[i].path);
+            fl->items[i].path = NULL;
+        }
         if (end - i == 2)
             mem_cmp(fl, i, end);
         else
@@ -203,19 +210,36 @@ static void compare_files(struct file_list* fl) {
     fl->count = w;
 }
 
-static void report_dupliactes(struct file_list* fl) {
-    printf("Group_ID\tFile_Path\n");
-    int curr_group = fl->items[0].group_id;
-    printf("%d\t%s\n", fl->items[0].group_id, fl->items[0].path);
-    for (int i = 0; i < fl->count; ++i) {
-        if (fl->items[i].group_id == curr_group) {
-            printf("  \t%s\n", fl->items[i].path);
-            continue;
+static void report_duplicates(struct file_list* fl) {
+    size_t total_groups = 0, total_redundant = 0;
+
+    for (size_t i = 0; i < fl->count;) {
+        int group_id = fl->items[i].group_id;
+
+        size_t end = i + 1;
+        while (end < fl->count && fl->items[end].group_id == group_id) end++;
+        size_t group_size = end - i;
+
+        if (group_id >= 0 && group_size >= 2) {
+            total_groups++;
+            total_redundant += group_size - 1;
+
+            printf("\nGroup %zu (%zu identical files)\n", total_groups,
+                   group_size);
+            for (size_t j = i; j < end; ++j)
+                printf("  %s %s\n", j == i ? "[keep?]" : "[dup]  ",
+                       fl->items[j].path);
         }
-        printf("----------------------------------------------------------\n");
-        printf("%d\t%s\n", fl->items[i].group_id, fl->items[i].path);
-        curr_group = fl->items[i].group_id;
+        i = end;
     }
+
+    if (total_groups == 0) {
+        puts("No duplicates found.");
+        return;
+    }
+
+    printf("\nSummary: %zu duplicate group(s), %zu redundant file(s)\n",
+           total_groups, total_redundant);
 }
 
 int main(int argc, char** argv) {
@@ -243,7 +267,7 @@ int main(int argc, char** argv) {
     qsort(files.items, files.count, sizeof(struct file), compare_ints);
     drop_unique_files(&files);
     compare_files(&files);
-    report_dupliactes(&files);
+    report_duplicates(&files);
 
     for (size_t i = 0; i < files.count; ++i) free(files.items[i].path);
     free(files.items);
